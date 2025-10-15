@@ -1,9 +1,12 @@
 import os
-API_TOKEN = os.getenv("API_TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID") # група або твій чат
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+from dotenv import load_dotenv
 
-CHECK_INTERVAL = 300  # інтервал перевірки новин у секундах
+load_dotenv()
+
+API_TOKEN = os.getenv("API_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 60))
 
 NEWS_FEEDS = [
     "https://www.pravda.com.ua/rss/view_news/",
