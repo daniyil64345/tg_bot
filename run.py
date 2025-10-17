@@ -4,7 +4,7 @@ import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
-
+from keep_alive import keep_alive  # ← додай цей імпорт
 from config import API_TOKEN
 from handlers import (
     admin_worker, channel_worker, news_fetcher,
@@ -60,4 +60,5 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    keep_alive()
     asyncio.run(main())
