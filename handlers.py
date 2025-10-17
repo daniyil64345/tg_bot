@@ -1,56 +1,228 @@
+
 import asyncio
 import hashlib
+import random
+import aiohttp
 from bs4 import BeautifulSoup
-
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
-from news_scraper import get_latest_news
-from ai_generate import ai_generate
 from config import CHECK_INTERVAL, ADMIN_CHAT_ID, CHANNEL_ID
 
+# --- FSM для редагування тексту ---
+class EditNewsText(StatesGroup):
+    waiting_for_text = State()
+
+# Черги і сховище
 pending_news = {}
 seen_links = set()
-
-ADMIN_QUEUE_PAUSE = 5
-CHANNEL_QUEUE_PAUSE = 5
-
 admin_queue = asyncio.Queue()
 channel_queue = asyncio.Queue()
 
-# Функція для підбору емодзі за категорією/ключовими словами
-def get_emoji(title: str) -> str:
-    title_lower = title.lower()
-    if any(word in title_lower for word in ["економ", "ринок", "фінанс", "валюта", "акції"]):
-        return "📊"
-    elif any(word in title_lower for word in ["політик", "уряд", "влада", "закон"]):
-        return "🏛️"
-    elif any(word in title_lower for word in ["спорт", "чемпіонат", "матч", "гравець"]):
-        return "⚽"
-    elif any(word in title_lower for word in ["технолог", "айті", "робот", "інновац"]):
-        return "💻"
-    else:
-        return "📰"
+# Дефолтні URL (резервні картинки)
+DEFAULT_IMAGES = [
+    "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=800",
+    "https://images.unsplash.com/photo-1557408172-e596b84ad1b3?w=800",
+    "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800",
+    "https://images.unsplash.com/photo-1559027615-cd1628902df4?w=800",
+    "https://images.unsplash.com/photo-1491841573634-28fb1df7d93f?w=800",
+]
 
-async def send_news(bot: Bot, chat_id: int, title: str, text: str, reply_markup=None):
-    emoji = get_emoji(title)
-    msg_text = f"{emoji} <b>{title}</b>\n\n{text}"
+THEME_IMAGES = {
+    "війна": [
+        "https://images.unsplash.com/photo-1578070221651-94e7f47b1f9f?w=800",
+        "https://images.unsplash.com/photo-1535083783855-76ae62b2914e?w=800"
+    ],
+    "спорт": [
+        "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800",
+        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800"
+    ],
+    "технолог": [
+        "https://images.unsplash.com/photo-1557408172-e596b84ad1b3?w=800",
+        "https://images.unsplash.com/photo-1625948515291-69613efd103f?w=800"
+    ],
+    "політик": [
+        "https://images.unsplash.com/photo-1559027615-cd1628902df4?w=800",
+        "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800"
+    ],
+    "економ": [
+        "https://images.unsplash.com/photo-1526374965328-7f5ae4e8e42e?w=800",
+        "https://images.unsplash.com/photo-1611974260368-63fe0a9d0c1b?w=800"
+    ],
+}
+
+# Глобальна змінна для bot (будемо встановлювати з run.py)
+global_bot: Bot = None
+
+
+def set_bot(bot: Bot):
+    """Встановлює глобальний bot для хендлерів"""
+    global global_bot
+    global_bot = bot
+
+
+def get_emoji(title: str) -> str:
+    """Вибирає емодзі за темою"""
+    t = title.lower()
+    if any(w in t for w in ["економ", "фінанс", "валют", "ринок", "бізнес"]):
+        return "📊"
+    if any(w in t for w in ["політик", "влада", "закон", "парламент"]):
+        return "🏛"
+    if any(w in t for w in ["війна", "зсу", "армія", "обстріл"]):
+        return "🪖"
+    if any(w in t for w in ["спорт", "матч", "чемпіон"]):
+        return "⚽️"
+    if any(w in t for w in ["технолог", "айті", "робот", "інновац"]):
+        return "💻"
+    return "📰"
+
+
+async def extract_image_from_article(html: str) -> str | None:
+    """Витягує перше зображення з HTML статті"""
     try:
-        await bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML", reply_markup=reply_markup)
+        soup = BeautifulSoup(html, "html.parser")
+        
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content"):
+            return og_image["content"]
+        
+        twitter_image = soup.find("meta", property="twitter:image")
+        if twitter_image and twitter_image.get("content"):
+            return twitter_image["content"]
+        
+        article = soup.find(["article", "div"], class_=lambda x: x and any(c in x.lower() for c in ["article", "post", "content", "news"]))
+        if article:
+            img = article.find("img")
+            if img and img.get("src"):
+                return img["src"]
+        
+        img = soup.find("img", src=True)
+        if img:
+            src = img["src"]
+            if any(x in src.lower() for x in ["logo", "icon", "avatar", "16x16", "32x32"]):
+                return None
+            return src
+        
     except Exception as e:
-        print(f"⚠️ Помилка надсилання: {e}")
+        print(f"⚠️ Помилка витягу зображення: {e}")
+    
+    return None
+
+
+async def validate_image_url(url: str) -> bool:
+    """Перевіряє, чи картинка доступна"""
+    if not url:
+        return False
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url, timeout=aiohttp.ClientTimeout(total=5), ssl=False) as resp:
+                return resp.status == 200
+    except Exception as e:
+        print(f"⚠️ Помилка валідації картинки {url}: {e}")
+        return False
+
+
+async def get_image_for_news(news: dict) -> str:
+    """
+    Намагається отримати зображення для новини:
+    1. Спочатку перевіряє поле 'image' з RSS
+    2. Якщо не знайшло — витягує з text (HTML)
+    3. Потім — тематичне за ключовими словами
+    4. Останній варіант — випадкове дефолтне
+    """
+    
+    # Варіант 1: Зображення з RSS фіду
+    if news.get("image"):
+        if await validate_image_url(news["image"]):
+            print(f"✅ Зображення з RSS: {news['image'][:50]}...")
+            return news["image"]
+    
+    # Варіант 2: Витяг з HTML
+    if "text" in news:
+        extracted_url = await extract_image_from_article(news["text"])
+        if extracted_url and await validate_image_url(extracted_url):
+            print(f"✅ Зображення витягнене з text: {extracted_url[:50]}...")
+            return extracted_url
+    
+    # Варіант 3: Тематичне за ключовими словами
+    title = news.get("title", "").lower()
+    for key, imgs in THEME_IMAGES.items():
+        if key in title:
+            return random.choice(imgs)
+    
+    # Варіант 4: Дефолтне випадкове
+    return random.choice(DEFAULT_IMAGES)
+
+
+async def send_news(bot: Bot, chat_id: int, title: str, text: str, reply_markup=None, image_url: str = None):
+    """Надсилає новину з картинкою"""
+    emoji = get_emoji(title)
+    clean_text = BeautifulSoup(text, "html.parser").get_text()
+    caption_title = f"{emoji} <b>{title}</b>"
+
+    try:
+        if image_url:
+            try:
+                if len(caption_title + "\n\n" + clean_text) <= 1024:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=image_url,
+                        caption=f"{caption_title}\n\n{clean_text}",
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    await bot.send_photo(
+                        chat_id=chat_id,
+                        photo=image_url,
+                        caption=caption_title,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                    await asyncio.sleep(1)
+                    await bot.send_message(chat_id=chat_id, text=clean_text, parse_mode="HTML")
+
+                await asyncio.sleep(random.uniform(10, 20))
+                return
+
+            except (TelegramBadRequest, Exception) as e:
+                print(f"⚠️ Помилка відправки фото: {e}. Надсилаємо як текст...")
+        
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"{caption_title}\n\n{clean_text}",
+            parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+        await asyncio.sleep(random.uniform(10, 20))
+
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(getattr(e, "retry_after", 30))
+        return await send_news(bot, chat_id, title, text, reply_markup, image_url)
+
 
 def hash_link(link: str) -> str:
     return hashlib.sha1(link.encode()).hexdigest()[:10]
 
+
+# --- Воркери ---
 async def news_fetcher():
+    from news_scraper import get_latest_news
     while True:
-        news_list = get_latest_news(seen_links)
-        for news in news_list:
-            news_hash = hash_link(news["link"])
-            pending_news[news_hash] = news
-            await admin_queue.put(news_hash)
+        try:
+            news_list = get_latest_news(seen_links)
+            for news in news_list:
+                news_hash = hash_link(news["link"])
+                pending_news[news_hash] = news
+                await admin_queue.put(news_hash)
+        except Exception as e:
+            print(f"⚠️ Помилка news_fetcher: {e}")
         await asyncio.sleep(CHECK_INTERVAL)
+
 
 async def admin_worker(bot: Bot):
     while True:
@@ -61,17 +233,16 @@ async def admin_worker(bot: Bot):
             continue
 
         clean_text = BeautifulSoup(news["text"], "html.parser").get_text()
-
+        image_url = await get_image_for_news(news)
+        
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Опублікувати", callback_data=f"approve_{news_hash}"),
-                InlineKeyboardButton(text="🚫 Пропустити", callback_data=f"skip_{news_hash}")
-            ]
+            [InlineKeyboardButton(text="✏️ Редагувати", callback_data=f"edit_{news_hash}")],
+            [InlineKeyboardButton(text="✅ Опублікувати", callback_data=f"approve_{news_hash}"),
+             InlineKeyboardButton(text="🚫 Пропустити", callback_data=f"skip_{news_hash}")]
         ])
-
-        await send_news(bot, ADMIN_CHAT_ID, news["title"], clean_text, reply_markup=keyboard)
-        await asyncio.sleep(ADMIN_QUEUE_PAUSE)
+        await send_news(bot, chat_id=ADMIN_CHAT_ID, title=news["title"], text=clean_text, reply_markup=keyboard, image_url=image_url)
         admin_queue.task_done()
+
 
 async def channel_worker(bot: Bot):
     while True:
@@ -81,15 +252,63 @@ async def channel_worker(bot: Bot):
             channel_queue.task_done()
             continue
 
-        try:
-            formatted = await ai_generate(news["text"])
-            clean_text = BeautifulSoup(formatted, "html.parser").get_text()
-            await send_news(bot, CHANNEL_ID, news["title"], clean_text)
-        except Exception as e:
-            print(f"⚠️ Помилка каналу: {e}")
-
-        await asyncio.sleep(CHANNEL_QUEUE_PAUSE)
+        clean_text = BeautifulSoup(news["text"], "html.parser").get_text()
+        image_url = await get_image_for_news(news)
+        await send_news(bot, chat_id=CHANNEL_ID, title=news["title"], text=clean_text, image_url=image_url)
         channel_queue.task_done()
+
 
 async def publish_to_channel(news_hash: str):
     await channel_queue.put(news_hash)
+
+
+# --- Хендлери редагування ---
+async def edit_text_callback_handler(bot: Bot, query: CallbackQuery, state: FSMContext):
+    """Хендлер для кнопки редагування"""
+    news_hash = query.data.replace("edit_", "")
+    news = pending_news.get(news_hash)
+    if not news:
+        await query.answer("Новина не знайдена ❌")
+        return
+
+    clean_text = BeautifulSoup(news["text"], "html.parser").get_text()
+    await query.message.answer(
+        text=f"Редагуйте текст для новини:\n\n<b>{news['title']}</b>\n\nПоточний текст:\n{clean_text}",
+        parse_mode="HTML"
+    )
+
+    await state.update_data(news_hash=news_hash)
+    await state.set_state(EditNewsText.waiting_for_text)
+    await query.answer()
+
+
+async def updated_text_handler(message: Message, state: FSMContext, bot: Bot):
+    """Хендлер для обробки відредагованого тексту"""
+    data = await state.get_data()
+    news_hash = data.get("news_hash")
+    
+    if not news_hash or news_hash not in pending_news:
+        await message.answer("❌ Новина не знайдена")
+        await state.clear()
+        return
+    
+    # Оновлюємо текст у новині
+    pending_news[news_hash]["text"] = message.text
+    await message.answer(f"✅ Текст оновлено!")
+    
+    # Відправляємо оновлену новину адміну
+    image_url = await get_image_for_news(pending_news[news_hash])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Опублікувати", callback_data=f"approve_{news_hash}"),
+         InlineKeyboardButton(text="🚫 Пропустити", callback_data=f"skip_{news_hash}")]
+    ])
+    await send_news(
+        bot=bot,
+        chat_id=ADMIN_CHAT_ID,
+        title=pending_news[news_hash]["title"],
+        text=pending_news[news_hash]["text"],
+        reply_markup=keyboard,
+        image_url=image_url
+    )
+    
+    await state.clear()

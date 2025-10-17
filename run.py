@@ -1,36 +1,62 @@
+
+# run.py
 import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.types import CallbackQuery
-from config import API_TOKEN, ADMIN_CHAT_ID
-from handlers import news_fetcher, admin_worker, channel_worker, publish_to_channel
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
+
+from config import API_TOKEN
+from handlers import (
+    admin_worker, channel_worker, news_fetcher,
+    publish_to_channel, edit_text_callback_handler, updated_text_handler, 
+    EditNewsText, set_bot
+)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-@dp.callback_query()
-async def handle_buttons(callback: CallbackQuery):
-    if callback.message.chat.id != ADMIN_CHAT_ID:
-        await callback.answer("🚫 Не ваша кнопка")
-        return
+# Встановлюємо глобальний bot
+set_bot(bot)
 
+# --- Callback кнопки ---
+@dp.callback_query(F.data.startswith("approve_"))
+async def handle_approve(query: CallbackQuery):
+    news_hash = query.data.replace("approve_", "")
+    await publish_to_channel(news_hash)
     try:
-        action, news_hash = callback.data.split("_", 1)
-    except ValueError:
-        await callback.answer("⚠️ Невірні дані")
-        return
+        await bot.edit_message_reply_markup(chat_id=query.message.chat.id,
+                                            message_id=query.message.message_id,
+                                            reply_markup=None)
+        await query.answer("Опубліковано ✅")
+    except Exception as e:
+        print(f"⚠️ Помилка опублікування новини: {e}")
 
-    if action == "approve":
-        await publish_to_channel(news_hash)
-        await callback.message.edit_text(f"{callback.message.text}\n\n✅ Опубліковано!")
-        await callback.answer("Новина додана у чергу каналу ✅")
-    elif action == "skip":
-        await callback.message.edit_text(f"{callback.message.text}\n\n🚫 Пропущено")
-        await callback.answer("Новина пропущена 🚫")
+@dp.callback_query(F.data.startswith("skip_"))
+async def handle_skip(query: CallbackQuery):
+    try:
+        await bot.edit_message_reply_markup(chat_id=query.message.chat.id,
+                                            message_id=query.message.message_id,
+                                            reply_markup=None)
+        await query.answer("Пропущено ❌")
+    except Exception as e:
+        print(f"⚠️ Помилка пропуску новини: {e}")
 
+# --- Хендлер для редагування ---
+@dp.callback_query(F.data.startswith("edit_"))
+async def handle_edit_text(query: CallbackQuery, state: FSMContext):
+    await edit_text_callback_handler(bot, query, state)
+
+# --- Хендлер для FSM вводу тексту ---
+@dp.message(EditNewsText.waiting_for_text)
+async def handle_updated_text(message: Message, state: FSMContext):
+    await updated_text_handler(message, state, bot)
+
+# --- Основна функція ---
 async def main():
     asyncio.create_task(news_fetcher())
     asyncio.create_task(admin_worker(bot))
     asyncio.create_task(channel_worker(bot))
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

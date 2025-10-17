@@ -1,19 +1,40 @@
-import subprocess
-import json
-import asyncio
 
-async def ai_generate(text: str) -> str:
-    """Редагує новину через Ollama CLI локально."""
+# ai_generate.py
+import asyncio
+import subprocess
+
+async def ai_generate(text: str) -> dict:
+    """
+    Викликає локальний ollama CLI (через `ollama run mistral`).
+    Повертає {"caption": ..., "keywords": ...}, щоб бот міг показувати коротку новину.
+    """
+    if not text or not text.strip():
+        return {"caption": "Немає тексту для генерації", "keywords": ""}
+
+    prompt = f"Напиши коротко і зрозуміло (до 250 символів): {text}"
+
     try:
-        # Викликаємо Ollama модель Mistral
+        # ollama run замість chat — сумісно з усіма версіями
         result = await asyncio.to_thread(
             subprocess.run,
-            ["ollama", "chat", "mistral", "--json"],
-            input=json.dumps({"prompt": f"Напиши коротко і зрозуміло: {text}"}).encode(),
-            capture_output=True
+            ["ollama", "run", "mistral"],
+            input=prompt.encode("utf-8"),
+            capture_output=True,
+            timeout=25
         )
-        output = json.loads(result.stdout)
-        return output.get("response", text)
+
+        output = result.stdout.decode("utf-8").strip()
+        if not output:
+            output = result.stderr.decode("utf-8").strip()
+
+        # Формуємо короткий caption
+        caption = output[:800].rsplit(" ", 1)[0] + "..." if len(output) > 800 else output
+        return {"caption": caption, "keywords": ""}
+
+    except subprocess.TimeoutExpired:
+        print("⚠️ AI помилка: ollama process timeout")
+        return {"caption": text[:500], "keywords": ""}
+
     except Exception as e:
         print(f"⚠️ AI помилка: {e}")
-        return text
+        return {"caption": text[:500], "keywords": ""}
