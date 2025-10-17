@@ -1,12 +1,14 @@
+
 # config.py
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-API_TOKEN = "8320380215:AAHyIRxWdhjHw2a6ZAXoK6GV1QDM1jI48zc"
-CHANNEL_ID = "@elcapononews"
-ADMIN_CHAT_ID = -1003135405579
+# ⚠️ ВАЖЛИВО: Не комітьте реальні токени! Використовуйте .env файл
+API_TOKEN = os.getenv("API_TOKEN", "")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@your_channel")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 60))
 
 NEWS_FEEDS = [
