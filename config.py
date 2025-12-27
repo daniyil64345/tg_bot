@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ⚠️ ВАЖЛИВО: Не комітьте реальні токени! Використовуйте .env файл
 API_TOKEN = os.getenv("API_TOKEN", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@your_channel")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
@@ -26,7 +25,6 @@ NEWS_FEEDS = [
 
 OLLAMA_CMD = os.getenv("OLLAMA_CMD", "ollama")
 
-# Optional: increase delays to avoid telegram flood
 MIN_SEND_DELAY = float(os.getenv("MIN_SEND_DELAY", 4.0))
 MAX_SEND_DELAY = float(os.getenv("MAX_SEND_DELAY", 6.5))
 FALLBACK_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg"
