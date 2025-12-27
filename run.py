@@ -15,10 +15,9 @@ from handlers import (
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# Встановлюємо глобальний bot
 set_bot(bot)
 
-# --- Callback кнопки ---
+
 @dp.callback_query(F.data.startswith("approve_"))
 async def handle_approve(query: CallbackQuery):
     news_hash = query.data.replace("approve_", "")
@@ -41,17 +40,17 @@ async def handle_skip(query: CallbackQuery):
     except Exception as e:
         print(f"⚠️ Помилка пропуску новини: {e}")
 
-# --- Хендлер для редагування ---
+
 @dp.callback_query(F.data.startswith("edit_"))
 async def handle_edit_text(query: CallbackQuery, state: FSMContext):
     await edit_text_callback_handler(bot, query, state)
 
-# --- Хендлер для FSM вводу тексту ---
+
 @dp.message(EditNewsText.waiting_for_text)
 async def handle_updated_text(message: Message, state: FSMContext):
     await updated_text_handler(message, state, bot)
 
-# --- Основна функція ---
+
 async def main():
     asyncio.create_task(news_fetcher())
     asyncio.create_task(admin_worker(bot))
