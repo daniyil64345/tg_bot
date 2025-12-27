@@ -17,16 +17,6 @@ python-telegram-bot	Робота з Telegram Bot API
 requests	HTTP-запити для отримання новин
 BeautifulSoup4	Парсинг HTML-контенту
 Flask	Веб-сервер для keep-alive механізму
-Структура проєкту
-tg_bot/
-├── run.py              # Головний файл запуску бота
-├── handlers.py         # Обробники команд та повідомлень користувачів
-├── ai_generate.py      # Модуль для генерації контенту за допомогою AI
-├── news_scraper.py     # Парсер новин з RSS фідів та веб-джерел
-├── config.py           # Конфігураційні налаштування та змінні
-├── keep_alive.py       # Flask сервер для підтримки активності бота
-├── Procfile            # Конфігурація для запуску процесів
-└── pon.txt             # Додаткові дані
 
 Опис модулів
 Модуль	Опис
@@ -51,7 +41,6 @@ pip install -r requirements.txt
 
 TELEGRAM_TOKEN=your_telegram_bot_token
 API_KEY=your_ai_api_key
-
 
 Як отримати токен Telegram: знайдіть @BotFather у Telegram, надішліть команду /newbot та дотримуйтесь інструкцій, потім скопіюйте токен у .env.
 
