@@ -15,6 +15,7 @@ News Parser Bot (Telegram)
 Клонування репозиторію:
 
 `git clone https://github.com/daniyil64345/tg_bot.git`
+
 `cd tg_bot`
 
 
