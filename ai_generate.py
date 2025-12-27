@@ -4,17 +4,14 @@ import asyncio
 import subprocess
 
 async def ai_generate(text: str) -> dict:
-    """
-    Викликає локальний ollama CLI (через `ollama run mistral`).
-    Повертає {"caption": ..., "keywords": ...}, щоб бот міг показувати коротку новину.
-    """
+ 
     if not text or not text.strip():
         return {"caption": "Немає тексту для генерації", "keywords": ""}
 
     prompt = f"Напиши коротко і зрозуміло (до 250 символів): {text}"
 
     try:
-        # ollama run замість chat — сумісно з усіма версіями
+
         result = await asyncio.to_thread(
             subprocess.run,
             ["ollama", "run", "mistral"],
@@ -27,7 +24,6 @@ async def ai_generate(text: str) -> dict:
         if not output:
             output = result.stderr.decode("utf-8").strip()
 
-        # Формуємо короткий caption
         caption = output[:800].rsplit(" ", 1)[0] + "..." if len(output) > 800 else output
         return {"caption": caption, "keywords": ""}
 
