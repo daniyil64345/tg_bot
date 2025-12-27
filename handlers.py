@@ -12,17 +12,17 @@ from aiogram.fsm.state import StatesGroup, State
 
 from config import CHECK_INTERVAL, ADMIN_CHAT_ID, CHANNEL_ID
 
-# --- FSM для редагування тексту ---
+
 class EditNewsText(StatesGroup):
     waiting_for_text = State()
 
-# Черги і сховище
+
 pending_news = {}
 seen_links = set()
 admin_queue = asyncio.Queue()
 channel_queue = asyncio.Queue()
 
-# Дефолтні URL (резервні картинки)
+
 DEFAULT_IMAGES = [
     "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=800",
     "https://images.unsplash.com/photo-1557408172-e596b84ad1b3?w=800",
@@ -54,18 +54,17 @@ THEME_IMAGES = {
     ],
 }
 
-# Глобальна змінна для bot (будемо встановлювати з run.py)
 global_bot: Bot = None
 
 
 def set_bot(bot: Bot):
-    """Встановлює глобальний bot для хендлерів"""
+
     global global_bot
     global_bot = bot
 
 
 def get_emoji(title: str) -> str:
-    """Вибирає емодзі за темою"""
+
     t = title.lower()
     if any(w in t for w in ["економ", "фінанс", "валют", "ринок", "бізнес"]):
         return "📊"
@@ -81,7 +80,7 @@ def get_emoji(title: str) -> str:
 
 
 async def extract_image_from_article(html: str) -> str | None:
-    """Витягує перше зображення з HTML статті"""
+
     try:
         soup = BeautifulSoup(html, "html.parser")
         
@@ -113,7 +112,7 @@ async def extract_image_from_article(html: str) -> str | None:
 
 
 async def validate_image_url(url: str) -> bool:
-    """Перевіряє, чи картинка доступна"""
+
     if not url:
         return False
     
@@ -127,39 +126,29 @@ async def validate_image_url(url: str) -> bool:
 
 
 async def get_image_for_news(news: dict) -> str:
-    """
-    Намагається отримати зображення для новини:
-    1. Спочатку перевіряє поле 'image' з RSS
-    2. Якщо не знайшло — витягує з text (HTML)
-    3. Потім — тематичне за ключовими словами
-    4. Останній варіант — випадкове дефолтне
-    """
-    
-    # Варіант 1: Зображення з RSS фіду
+
     if news.get("image"):
         if await validate_image_url(news["image"]):
             print(f"✅ Зображення з RSS: {news['image'][:50]}...")
             return news["image"]
     
-    # Варіант 2: Витяг з HTML
+
     if "text" in news:
         extracted_url = await extract_image_from_article(news["text"])
         if extracted_url and await validate_image_url(extracted_url):
             print(f"✅ Зображення витягнене з text: {extracted_url[:50]}...")
             return extracted_url
-    
-    # Варіант 3: Тематичне за ключовими словами
+
     title = news.get("title", "").lower()
     for key, imgs in THEME_IMAGES.items():
         if key in title:
             return random.choice(imgs)
-    
-    # Варіант 4: Дефолтне випадкове
+
     return random.choice(DEFAULT_IMAGES)
 
 
 async def send_news(bot: Bot, chat_id: int, title: str, text: str, reply_markup=None, image_url: str = None):
-    """Надсилає новину з картинкою"""
+
     emoji = get_emoji(title)
     clean_text = BeautifulSoup(text, "html.parser").get_text()
     caption_title = f"{emoji} <b>{title}</b>"
@@ -209,7 +198,6 @@ def hash_link(link: str) -> str:
     return hashlib.sha1(link.encode()).hexdigest()[:10]
 
 
-# --- Воркери ---
 async def news_fetcher():
     from news_scraper import get_latest_news
     while True:
@@ -262,9 +250,8 @@ async def publish_to_channel(news_hash: str):
     await channel_queue.put(news_hash)
 
 
-# --- Хендлери редагування ---
 async def edit_text_callback_handler(bot: Bot, query: CallbackQuery, state: FSMContext):
-    """Хендлер для кнопки редагування"""
+
     news_hash = query.data.replace("edit_", "")
     news = pending_news.get(news_hash)
     if not news:
@@ -283,7 +270,7 @@ async def edit_text_callback_handler(bot: Bot, query: CallbackQuery, state: FSMC
 
 
 async def updated_text_handler(message: Message, state: FSMContext, bot: Bot):
-    """Хендлер для обробки відредагованого тексту"""
+
     data = await state.get_data()
     news_hash = data.get("news_hash")
     
@@ -291,12 +278,11 @@ async def updated_text_handler(message: Message, state: FSMContext, bot: Bot):
         await message.answer("❌ Новина не знайдена")
         await state.clear()
         return
-    
-    # Оновлюємо текст у новині
+
     pending_news[news_hash]["text"] = message.text
     await message.answer(f"✅ Текст оновлено!")
     
-    # Відправляємо оновлену новину адміну
+
     image_url = await get_image_for_news(pending_news[news_hash])
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Опублікувати", callback_data=f"approve_{news_hash}"),
