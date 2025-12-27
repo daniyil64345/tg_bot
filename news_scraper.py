@@ -29,7 +29,7 @@ def is_serious_news(title: str, summary: str) -> bool:
 def extract_image_from_entry(entry) -> str | None:
     """Витягує картинку з RSS запису в порядку пріоритету"""
     
-    # 1. Шукаємо в summary (HTML)
+
     summary = getattr(entry, "summary", "") or ""
     if summary:
         soup = BeautifulSoup(summary, "html.parser")
@@ -37,7 +37,7 @@ def extract_image_from_entry(entry) -> str | None:
         if img_tag and img_tag.get("src"):
             return img_tag.get("src")
     
-    # 2. Шукаємо в content[0].value
+
     if hasattr(entry, "content") and entry.content:
         try:
             soup_c = BeautifulSoup(entry.content[0].value, "html.parser")
@@ -47,7 +47,7 @@ def extract_image_from_entry(entry) -> str | None:
         except Exception as e:
             print(f"⚠️ Помилка парсингу content: {e}")
     
-    # 3. Шукаємо в media_content
+
     if hasattr(entry, "media_content"):
         try:
             media = getattr(entry, "media_content", None)
@@ -56,8 +56,7 @@ def extract_image_from_entry(entry) -> str | None:
                     return media[0].get("url")
         except Exception as e:
             print(f"⚠️ Помилка парсингу media_content: {e}")
-    
-    # 4. Шукаємо в media_thumbnail
+
     if hasattr(entry, "media_thumbnail"):
         try:
             thumbnail = getattr(entry, "media_thumbnail", None)
@@ -67,7 +66,7 @@ def extract_image_from_entry(entry) -> str | None:
         except Exception as e:
             print(f"⚠️ Помилка парсингу media_thumbnail: {e}")
     
-    # 5. Шукаємо в enclosures
+
     if hasattr(entry, "enclosures"):
         try:
             for enclosure in entry.enclosures:
